@@ -1,0 +1,1650 @@
+<template>
+    <empty-layout>
+        <nav-bar :fixedTop="true" v-if="!fullscreen" />
+        <div class="container" :class="{ 'fullscreen-container': fullscreen }">
+            <div class="section" :class="{ 'fullscreen-mode': fullscreen }">
+                <vue-headful title="Recibras Manager - Placar de Produção "
+                    description="Recibras Manager - Placar de Produção" />
+                <!-- Cabeçalho com título azul e data rosa -->
+                <div class="columns is-vcentered" v-if="!fullscreen">
+                    <div class="column">
+                        <div class="titulo-azul">
+                            <h1 class="title is-2 has-text-white">
+                                <i class="fas fa-clipboard-list"></i> Placar de Produção
+                            </h1>
+                        </div>
+                    </div>
+                    <div class="column is-narrow">
+                        <div class="data-rosa">
+                            <p class="title is-4">{{ formatarDataParaExibicao(dataSelecionadaFormatted) }}</p>
+                        </div>
+                    </div>
+                    <div class="column is-narrow">
+
+                    </div>
+                </div>
+
+                <!-- Botão para tela cheia -->
+                <button v-if="!fullscreen" @click="toggleFullscreen" class="button is-info is-light"
+                    title="Expandir para tela cheia">
+                    <span class="icon">
+                        <i class="fas fa-expand"></i>
+                    </span>
+                    <span>Tela Cheia</span>
+                </button>
+                <button v-else @click="toggleFullscreen" class="button is-danger is-light"
+                    title="Sair do modo tela cheia">
+                    <span class="icon">
+                        <i class="fas fa-compress"></i>
+                    </span>
+                    <span>Sair</span>
+                </button>
+                <!-- Seletor de Pasta de Operação -->
+                <div class="field" v-if="!fullscreen">
+                    <label class="label">Selecione a Pasta de Operação:</label>
+                    <div class="select is-fullwidth">
+                        <select v-model="selectedFicha">
+                            <option v-for="item in fichas" :value="item" :key="item.id">
+                                {{ item.nome }}
+                            </option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Seletor de Data - Modificado -->
+                <div class="field" v-if="!fullscreen">
+                    <label class="label">Selecionar Data Específica:</label>
+                    <div class="field has-addons">
+                        <div class="control is-expanded">
+                            <input class="input" type="date" v-model="dataSelecionadaFormatted"
+                                :max="formatDateToString(new Date())" placeholder="Selecione uma data">
+                        </div>
+                        <div class="control">
+                            <button class="button is-primary" @click="carregarDataEspecifica"
+                                :disabled="!dataSelecionadaFormatted">
+                                Carregar
+                            </button>
+                        </div>
+                        <div class="control">
+                            <button class="button is-info" @click="voltarParaHoje">
+                                Hoje
+                            </button>
+                        </div>
+                    </div>
+                    <p class="help" v-if="dataSelecionadaFormatted">
+                        Visualizando dados de: {{ formatarDataParaExibicao(dataSelecionadaFormatted) }}
+                    </p>
+                </div>
+
+                <!-- Filtros de Status -->
+                <div class="box" v-if="!fullscreen">
+                    <h4 class="subtitle is-5">Status da Entrada</h4>
+                    <div class="block">
+                        <b-radio v-model="finalizadas" name="name" :native-value="true">
+                            Somente Finalizadas
+                        </b-radio>
+                        <b-radio v-model="finalizadas" name="name" :native-value="false">
+                            Somente não finalizadas
+                        </b-radio>
+                        <b-radio v-model="finalizadas" name="name" :native-value="null">
+                            Todas
+                        </b-radio>
+                    </div>
+                    <!-- Status de carregamento em tempo real -->
+                    <div class="notification is-success is-light" v-if="realtimeConnected">
+                        <i class="fas fa-circle" style="color: #27ae60; animation: pulse 2s infinite;"></i>
+                        Dados atualizando em tempo real
+                    </div>
+                </div>
+
+                <!-- Tabela Principal de Separações -->
+                <div class="table-container excel-style" :class="{ 'fullscreen-table': fullscreen }">
+                    <table class="table is-bordered is-fullwidth separacoes-table">
+                        <thead>
+                            <tr class="cabecalho-verde">
+                                <th class="is-hidden-mobile">Data</th>
+                                <th>Colaborador</th>
+                                <th>Produto</th>
+                                <th>Hora Término</th>
+                                <th>Qtd (KG)</th>
+                                <th class="is-hidden-mobile">R$/Kg</th>
+                                <th>Valor Sep. (R$)</th>
+                                <th>Equipe</th>
+                                <th>Qt Coop</th>
+                                <th>R$/Cooperado</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr v-for="(itemSeparado, index) in filteredSeparacoes" :key="itemSeparado.idSeparacao"
+                                :class="[getRowClass(index), {
+                                    'linha-estornada': (itemSeparado.estorno || itemSeparado.estornado)
+                                }]">
+                                <td class="is-hidden-mobile" :title="itemSeparado.idSeparacao">
+                                    {{ itemSeparado.dataSeparacao | firebasedate }}
+                                </td>
+                                <td>
+                                    {{ itemSeparado.codigoColaborador }} - {{ itemSeparado.nomeColaborador }}
+                                </td>
+                                <td>{{ itemSeparado.nomeProduto }}</td>
+                                <td>{{ itemSeparado.horaTermino || '--' }}</td>
+                                <td class="number-cell">
+                                    {{ itemSeparado.quantidade | formatNumber }}
+                                    <span class="is-hidden-mobile" v-if="incluirSimbolosEUnidadesDeMedida">KG</span>
+                                </td>
+                                <td class="number-cell is-hidden-mobile">
+                                    <span v-if="incluirSimbolosEUnidadesDeMedida">
+                                        {{ itemSeparado.custoSeparacaoPorKG | toCurrency }}
+                                    </span>
+                                    <span v-else>
+                                        R$ {{ itemSeparado.custoSeparacaoPorKG | formatNumber }}
+                                    </span>
+                                </td>
+                                <td class="number-cell">
+                                    <span v-if="incluirSimbolosEUnidadesDeMedida">
+                                        {{ itemSeparado.valorSeparacaoPorSeparador | toCurrency }}
+                                    </span>
+                                    <span v-else>
+                                        R$ {{ itemSeparado.valorSeparacaoPorSeparador | formatNumber }}
+                                    </span>
+                                </td>
+                                <td>{{ itemSeparado.NomeEquipe || '--' }}</td>
+                                <td class="number-cell">{{ itemSeparado.qtdPessoasEquipe || '--' }}</td>
+                                <td class="number-cell">
+                                    <span v-if="itemSeparado.valorPorPessoa && incluirSimbolosEUnidadesDeMedida">
+                                        {{ itemSeparado.valorPorPessoa | toCurrency }}
+                                    </span>
+                                    <span v-else-if="itemSeparado.valorPorPessoa">
+                                        R$ {{ itemSeparado.valorPorPessoa | formatNumber }}
+                                    </span>
+                                    <span v-else>--</span>
+                                </td>
+                            </tr>
+                        </tbody>
+                        <tfoot>
+                            <!-- Total do Dia -->
+                            <tr class="total-dia">
+                                <td colspan="4" class="is-hidden-mobile"><strong>Total do Dia</strong></td>
+                                <td colspan="2" class="is-hidden-tablet"><strong>Dia</strong></td>
+                                <td class="number-cell"><strong>{{ totaisPeriodo.dia.qtd | formatNumber }} kg</strong>
+                                </td>
+                                <td class="number-cell is-hidden-mobile">
+                                    <span v-if="incluirSimbolosEUnidadesDeMedida">
+                                        <strong>{{ totaisPeriodo.dia.custoMedio | toCurrency }}</strong>
+                                    </span>
+                                    <span v-else>
+                                        <strong>R$ {{ totaisPeriodo.dia.custoMedio | formatNumber }}</strong>
+                                    </span>
+                                </td>
+                                <td class="number-cell">
+                                    <span v-if="incluirSimbolosEUnidadesDeMedida">
+                                        <strong>{{ totaisPeriodo.dia.valor | toCurrency }}</strong>
+                                    </span>
+                                    <span v-else>
+                                        <strong>R$ {{ totaisPeriodo.dia.valor | formatNumber }}</strong>
+                                    </span>
+                                </td>
+                                <td colspan="3"><strong>--</strong></td>
+                            </tr>
+
+                            <!-- Total da Semana -->
+                            <tr class="total-semana">
+                                <td colspan="4" class="is-hidden-mobile"><strong>Total da Semana</strong></td>
+                                <td colspan="2" class="is-hidden-tablet"><strong>Semana</strong></td>
+                                <td class="number-cell"><strong>{{ totaisPeriodo.semana.qtd | formatNumber }}
+                                        kg</strong></td>
+                                <td class="number-cell is-hidden-mobile">
+                                    <span v-if="incluirSimbolosEUnidadesDeMedida">
+                                        <strong>{{ totaisPeriodo.semana.custoMedio | toCurrency }}</strong>
+                                    </span>
+                                    <span v-else>
+                                        <strong>R$ {{ totaisPeriodo.semana.custoMedio | formatNumber }}</strong>
+                                    </span>
+                                </td>
+                                <td class="number-cell">
+                                    <span v-if="incluirSimbolosEUnidadesDeMedida">
+                                        <strong>{{ totaisPeriodo.semana.valor | toCurrency }}</strong>
+                                    </span>
+                                    <span v-else>
+                                        <strong>R$ {{ totaisPeriodo.semana.valor | formatNumber }}</strong>
+                                    </span>
+                                </td>
+                                <td colspan="3"><strong>--</strong></td>
+                            </tr>
+
+                            <!-- Total do Mês -->
+                            <tr class="total-mes">
+                                <td colspan="4" class="is-hidden-mobile"><strong>Total do Mês</strong></td>
+                                <td colspan="2" class="is-hidden-tablet"><strong>Mês</strong></td>
+                                <td class="number-cell"><strong>{{ totaisPeriodo.mes.qtd | formatNumber }} kg</strong>
+                                </td>
+                                <td class="number-cell is-hidden-mobile">
+                                    <span v-if="incluirSimbolosEUnidadesDeMedida">
+                                        <strong>{{ totaisPeriodo.mes.custoMedio | toCurrency }}</strong>
+                                    </span>
+                                    <span v-else>
+                                        <strong>R$ {{ totaisPeriodo.mes.custoMedio | formatNumber }}</strong>
+                                    </span>
+                                </td>
+                                <td class="number-cell">
+                                    <span v-if="incluirSimbolosEUnidadesDeMedida">
+                                        <strong>{{ totaisPeriodo.mes.valor | toCurrency }}</strong>
+                                    </span>
+                                    <span v-else>
+                                        <strong>R$ {{ totaisPeriodo.mes.valor | formatNumber }}</strong>
+                                    </span>
+                                </td>
+                                <td colspan="3"><strong>--</strong></td>
+                            </tr>
+
+                            <!-- Total Geral - AGORA SOMA DOS TRÊS TOTAIS ANTERIORES -->
+                            <tr class="total-verde">
+                                <td colspan="4" class="is-hidden-mobile"><strong>Total Geral</strong></td>
+                                <td colspan="2" class="is-hidden-tablet"><strong>Geral</strong></td>
+                                <td class="number-cell"><strong>{{ totaisGeral.qtd | formatNumber }} kg</strong></td>
+                                <td class="number-cell is-hidden-mobile">
+                                    <span v-if="incluirSimbolosEUnidadesDeMedida">
+                                        <strong>{{ totaisGeral.custoMedio | toCurrency }}</strong>
+                                    </span>
+                                    <span v-else>
+                                        <strong>R$ {{ totaisGeral.custoMedio | formatNumber }}</strong>
+                                    </span>
+                                </td>
+                                <td class="number-cell">
+                                    <span v-if="incluirSimbolosEUnidadesDeMedida">
+                                        <strong>{{ totaisGeral.valor | toCurrency }}</strong>
+                                    </span>
+                                    <span v-else>
+                                        <strong>R$ {{ totaisGeral.valor | formatNumber }}</strong>
+                                    </span>
+                                </td>
+                                <td colspan="3"><strong>--</strong></td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+                <!-- Histórico dos Últimos 7 Dias -->
+
+                <div v-if="selectedFicha && dadosUltimos7Dias.length > 0 && !fullscreen" class="box">
+
+                    <h4 class="subtitle is-5">
+                        <i class="fas fa-chart-line"></i> Histórico dos Últimos 7 Dias
+                        <span v-if="carregandoHistorico" class="tag is-loading is-info is-light">Carregando...</span>
+                    </h4>
+
+                    <div class="table-container">
+                        <table class="table is-bordered is-fullwidth historico-table">
+                            <thead>
+                                <tr class="cabecalho-historico">
+                                    <th>Data</th>
+                                    <th>Peso Total (KG)</th>
+                                    <th>Valor Total (R$)</th>
+                                    <th>Colaboradores</th>
+                                    <th>Separações</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="(dia, index) in dadosUltimos7Dias" :key="dia.data"
+                                    :class="[getRowClass(index), { 'sem-dados': !dia.temDados }]">
+                                    <td><strong>{{ dia.dataFormatada.split(',')[0] }}</strong><br>
+                                        <small>{{ dia.data }}</small>
+                                    </td>
+                                    <td class="number-cell">
+                                        {{ dia.totais.pesoTotalKg | formatNumber }} kg
+                                    </td>
+                                    <td class="number-cell">
+                                        {{ dia.totais.valorTotalSeparacao | toCurrency }}
+                                    </td>
+                                    <td class="number-cell">
+                                        {{ dia.totais.qtdColaboradores || 0 }}
+                                    </td>
+                                    <td class="number-cell">
+                                        {{ dia.totais.qtdSeparacoes || 0 }}
+                                    </td>
+                                    <td>
+                                        <span v-if="dia.erro" class="tag is-danger">Erro</span>
+                                        <span v-else-if="dia.temDados" class="tag is-success">Com dados</span>
+                                        <span v-else class="tag is-light">Sem dados</span>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Mensagem quando não há ficha selecionada -->
+                <div v-if="!selectedFicha && !fullscreen" class="notification is-info">
+                    <i class="fas fa-info-circle"></i> Selecione uma pasta de operação para visualizar os dados de
+                    separação.
+                </div>
+
+                <!-- Tabela Pivot -->
+                <div v-if="separacoes.length > 0 && !fullscreen">
+                    <br />
+                    <h3 class="subtitle is-4">Relatório de Produção Acumulado - Valor em R$</h3>
+                    <b-checkbox v-model="separarPorDia">Mostrar Dias no cabeçalho</b-checkbox>
+                    <vue-pivottable v-if="selectedValue != null && selectedValue != ''" :data="pivotData"
+                        :key="selectedValue + 1" :aggregator-name="aggregatorName" :renderer-name="rendererName"
+                        :rows="rows" :cols="cols" :vals="vals" :row-total="true" :col-total="true" :sortBy="sortBy"
+                        :sortOrder="sortOrder" :aggregators="aggregators" :locales="locales"
+                        :value-format="formatValue">
+                    </vue-pivottable>
+                </div>
+            </div>
+        </div>
+    </empty-layout>
+</template>
+
+<script>
+import firebase from "firebase";
+import NavBar from "../../components/NavBar.vue";
+import fichasService from '@/services/fichas.service';
+
+import { VuePivottable, PivotUtilities } from "vue-pivottable";
+import { DateTime } from "luxon";
+
+const addSeparators = function (nStr, thousandsSep, decimalSep) {
+    const x = String(nStr).split(".");
+    let x1 = x[0];
+    const x2 = x.length > 1 ? decimalSep + x[1] : "";
+    const rgx = /(\d+)(\d{3})/;
+    while (rgx.test(x1)) {
+        x1 = x1.replace(rgx, `$1${thousandsSep}$2`);
+    }
+    return x1 + x2;
+};
+
+const numberFormat = function (optsIn) {
+    const defaults = {
+        digitsAfterDecimal: 2,
+        scaler: 1,
+        thousandsSep: ",",
+        decimalSep: ".",
+        prefix: "",
+        suffix: "",
+    };
+    const opts = Object.assign({}, defaults, optsIn);
+    return function (x) {
+        if (isNaN(x) || !isFinite(x)) {
+            return "";
+        }
+        const result = addSeparators(
+            (opts.scaler * x).toFixed(opts.digitsAfterDecimal),
+            opts.thousandsSep,
+            opts.decimalSep
+        );
+        return `${opts.prefix}${result}${opts.suffix}`;
+    };
+};
+
+const aggregators = ((tpl) => ({
+    Sum: tpl.sum(numberFormat({ digitsAfterDecimal: 2, scaler: 1 })),
+}))(PivotUtilities.aggregatorTemplates);
+
+export default {
+    components: { NavBar, VuePivottable },
+    data() {
+        return {
+            mostrarHistorico: false,
+            dataSelecionadaFormatted: null,
+            firebaseRef: null,
+            analyticsData: {},
+            analyticsListener: null,
+            rankingColaboradores: [],
+            dadosUltimos7Dias: [],
+            carregandoHistorico: false,
+            totaisDia: { qtd: 0, valor: 0, custoMedio: 0 },
+            totaisSemana: { qtd: 0, valor: 0, custoMedio: 0 },
+            totaisMes: { qtd: 0, valor: 0, custoMedio: 0 },
+
+            fullscreen: false,
+            fichasListener: null,
+            dataListener: null,
+            realtimeConnected: true,
+            fichas: [],
+            selectedFicha: null,
+            dataInicioEntrada: null,
+            dataFimEntrada: null,
+            dataInicioSeparacao: null,
+            dataFimSeparacao: null,
+            finalizadas: true,
+            filterKey: "",
+            movimentacoes: [],
+            separacoes: [],
+            subTipoMovimentacao: "Entrada",
+            tipoMovimentacao: "Compras",
+            idPastaOperacao: null,
+            incluirSimbolosEUnidadesDeMedida: false,
+            colaboradoresDisponiveis: [],
+            produtosDisponiveis: [],
+            selectedIdColaborador: null,
+            selectedIdProduto: null,
+            incluirEstornos: false,
+            separarPorDia: false,
+            selectedColaboradores: [],
+            selectedProdutos: [],
+            pivotData: [],
+            sortBy: ["Semana", "Data Separação"],
+            sortOrder: ["desc", "asc"],
+            rendererName: "Table",
+            aggregatorName: "Sum",
+            aggregators: aggregators,
+            selectedValue: "Valor Separação Por Separador",
+            locales: {
+                en: {
+                    aggregators,
+                    localeStrings: {
+                        renderError: "An error occurred rendering the PivotTable results.",
+                        computeError: "An error occurred computing the PivotTable results.",
+                        uiRenderError: "An error occurred rendering the PivotTable UI.",
+                        selectAll: "Select All",
+                        selectNone: "Select None",
+                        tooMany: "(too many to list)",
+                        filterResults: "Filter values",
+                        totals: "Totais",
+                        vs: "vs",
+                        by: "by",
+                    },
+                },
+            },
+        };
+    },
+    mounted() {
+        this.getFichas();
+        this.dataSelecionadaFormatted = this.formatDateToString(new Date());
+        window.addEventListener('fichas-service-listener-changed', this.handleListenerChange);
+    },
+
+    watch: {
+        selectedFicha: function (newFicha) {
+            var thisVM = this;
+
+            if (thisVM.dataListener) {
+                thisVM.dataListener();
+                thisVM.dataListener = null;
+                thisVM.realtimeConnected = false;
+            }
+
+            if (thisVM.analyticsListener) {
+                thisVM.analyticsListener();
+                thisVM.analyticsListener = null;
+            }
+
+            if (newFicha != null) {
+                thisVM.idPastaOperacao = newFicha.id;
+
+                if (newFicha.dataInicioFicha != null) {
+                    thisVM.dataInicioEntrada = new Date(newFicha.dataInicioFicha);
+                }
+
+                if (newFicha.dataFimFicha != null) {
+                    thisVM.dataFimEntrada = new Date(newFicha.dataFimFicha);
+                }
+
+                thisVM.startRealtimeDataLoading();
+            } else {
+                thisVM.idPastaOperacao = null;
+                thisVM.clearData();
+            }
+        },
+
+        finalizadas: function () {
+            if (this.selectedFicha) {
+                this.startRealtimeDataLoading();
+            }
+        },
+
+        filteredSeparacoes() {
+            this.generatePivot();
+        },
+    },
+    methods: {
+
+        async carregarTotaisUltimos7Dias() {
+            var thisVM = this;
+
+            if (!thisVM.selectedFicha) return;
+
+            thisVM.carregandoHistorico = true;
+            thisVM.dadosUltimos7Dias = [];
+
+            const dataBase = thisVM.dataSelecionadaFormatted || thisVM.formatDateToString(new Date());
+            const dataBaseObj = new Date(dataBase);
+
+            const datas = thisVM.gerarDatasUltimos7Dias(dataBaseObj);
+            const promises = [];
+
+            const anoMes = dataBase.substring(0, 7);
+            const totaisMesPromise = thisVM.carregarTotaisDoMes(anoMes);
+
+            datas.forEach(data => {
+                const firebasePath = `${thisVM.$route.params.time}/Analytics/TabelaProducaoDiaria/${data}/totais`;
+
+                const promise = new Promise((resolve) => {
+                    firebase.database()
+                        .ref(firebasePath)
+                        .once('value', (snapshot) => {
+                            if (snapshot.exists() && snapshot.val()) {
+                                const totais = snapshot.val();
+                                resolve({
+                                    data: data,
+                                    dataFormatada: thisVM.formatarDataParaExibicao(data),
+                                    totais: totais,
+                                    temDados: true
+                                });
+                            } else {
+                                resolve({
+                                    data: data,
+                                    dataFormatada: thisVM.formatarDataParaExibicao(data),
+                                    totais: {
+                                        pesoTotalKg: 0,
+                                        valorTotalSeparacao: 0,
+                                        qtdColaboradores: 0,
+                                        qtdSeparacoes: 0
+                                    },
+                                    temDados: false
+                                });
+                            }
+                        }, (error) => {
+                            alert(`Erro ao carregar ${data}:` + error);
+                            resolve({
+                                data: data,
+                                dataFormatada: thisVM.formatarDataParaExibicao(data),
+                                totais: {
+                                    pesoTotalKg: 0,
+                                    valorTotalSeparacao: 0,
+                                    qtdColaboradores: 0,
+                                    qtdSeparacoes: 0
+                                },
+                                temDados: false,
+                                erro: true
+                            });
+                        });
+                });
+
+                promises.push(promise);
+            });
+
+            try {
+                const [resultadosDias, totaisMes] = await Promise.all([
+                    Promise.all(promises),
+                    totaisMesPromise
+                ]);
+
+                thisVM.processarTotaisSemana(resultadosDias);
+                thisVM.totaisMes = totaisMes;
+
+                thisVM.dadosUltimos7Dias = resultadosDias.sort((a, b) =>
+                    new Date(b.data) - new Date(a.data)
+                );
+
+                thisVM.carregandoHistorico = false;
+
+            } catch (error) {
+                thisVM.carregandoHistorico = false;
+                alert('Erro ao carregar histórico:' + error);
+            }
+        },
+        async carregarTotaisDoMes(anoMes) {
+            var thisVM = this;
+
+            try {
+                // Buscar todos os dias do mês no Analytics
+                const firebasePath = `${thisVM.$route.params.time}/Analytics/TabelaProducaoDiaria`;
+                const snapshot = await firebase.database().ref(firebasePath).once('value');
+
+                if (!snapshot.exists()) {
+                    return { qtd: 0, valor: 0, custoMedio: 0 };
+                }
+
+                let totalQtdMes = 0;
+                let totalValorMes = 0;
+
+                snapshot.forEach((diaSnapshot) => {
+                    const data = diaSnapshot.key;
+
+                    // Verificar se a data pertence ao mês selecionado
+                    if (data.startsWith(anoMes)) {
+                        const totaisDia = diaSnapshot.child('totais').val();
+                        if (totaisDia) {
+                            const pesoDia = totaisDia.pesoKg || totaisDia.pesoTotalKg || 0;
+                            const valorDiaCent = totaisDia.valorTotalCent || totaisDia.valorTotalSeparacao || 0;
+                            const valorDia = valorDiaCent / (totaisDia.valorTotalCent ? 100 : 1);
+
+                            totalQtdMes += pesoDia;
+                            totalValorMes += valorDia;
+                        }
+                    }
+                });
+
+                return {
+                    qtd: totalQtdMes,
+                    valor: totalValorMes,
+                    custoMedio: totalQtdMes > 0 ? totalValorMes / totalQtdMes : 0
+                };
+
+            } catch (error) {
+                alert('Erro ao carregar totais do mês:' + error);
+                return { qtd: 0, valor: 0, custoMedio: 0 };
+            }
+        },
+
+        async carregarTotaisDoDia(data) {
+            var thisVM = this;
+
+            const firebasePath = `${thisVM.$route.params.time}/Analytics/TabelaProducaoDiaria/${data}/totais`;
+
+            try {
+                const snapshot = await firebase.database().ref(firebasePath).once('value');
+
+                if (snapshot.exists() && snapshot.val()) {
+                    const totaisDia = snapshot.val();
+                    const pesoTotal = totaisDia.pesoKg || totaisDia.pesoTotalKg || 0;
+                    const valorTotalCent = totaisDia.valorTotalCent || totaisDia.valorTotalSeparacao || 0;
+                    const valorTotal = valorTotalCent / (totaisDia.valorTotalCent ? 100 : 1);
+
+                    return {
+                        qtd: pesoTotal,
+                        valor: valorTotal,
+                        custoMedio: pesoTotal > 0 ? valorTotal / pesoTotal : 0
+                    };
+                } else {
+                    return { qtd: 0, valor: 0, custoMedio: 0 };
+                }
+
+            } catch (error) {
+                alert('Erro ao carregar totais do dia:' + error);
+                return { qtd: 0, valor: 0, custoMedio: 0 };
+            }
+        },
+
+        processarTotaisSemana(dadosDias) {
+            var thisVM = this;
+
+            let totalQtdSemana = 0;
+            let totalValorSemana = 0;
+
+            dadosDias.forEach(dia => {
+                if (dia.temDados) {
+                    totalQtdSemana += dia.totais.pesoKg || dia.totais.pesoTotalKg || 0;
+
+                    const valorDia = dia.totais.valorTotalCent || dia.totais.valorTotalSeparacao || 0;
+                    totalValorSemana += valorDia / (dia.totais.valorTotalCent ? 100 : 1);
+                }
+            });
+
+            thisVM.totaisSemana = {
+                qtd: totalQtdSemana,
+                valor: totalValorSemana,
+                custoMedio: totalQtdSemana > 0 ? totalValorSemana / totalQtdSemana : 0
+            };
+        },
+
+        gerarDatasUltimos7Dias(dataBase) {
+            const datas = [];
+            const base = new Date(dataBase);
+
+            for (let i = 6; i >= 0; i--) {
+                const data = new Date(base);
+                data.setDate(base.getDate() - i);
+                datas.push(this.formatDateToString(data));
+            }
+
+            return datas;
+        },
+
+        formatarDataParaExibicao(dataString) {
+            if (!dataString) return '';
+
+            try {
+                const data = new Date(dataString + 'T12:00:00');
+                return data.toLocaleDateString('pt-BR', {
+                    weekday: 'long',
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric'
+                });
+            } catch (e) {
+                alert("Erro ao formatar data:", e);
+                return dataString;
+            }
+        },
+
+        formatarDataParaTabela(timestamp) {
+            if (!timestamp) return '';
+
+            try {
+                const data = new Date(timestamp);
+                return data.toLocaleDateString('pt-BR');
+            } catch (e) {
+                alert("Erro ao formatar data da tabela:", e);
+                return 'Data inválida';
+            }
+        },
+
+        carregarDataEspecifica() {
+            if (!this.dataSelecionadaFormatted || !this.selectedFicha) return;
+
+            if (this.analyticsListener && typeof this.analyticsListener === 'function') {
+                this.analyticsListener();
+            }
+            if (this.firebaseRef) {
+                this.firebaseRef.off();
+            }
+
+            this.analyticsListener = null;
+            this.firebaseRef = null;
+
+            this.$store.commit("startLoading");
+            this.realtimeConnected = false;
+
+            const dataFormatada = this.dataSelecionadaFormatted;
+            const firebasePath = `${this.$route.params.time}/Analytics/TabelaProducaoDiaria/${dataFormatada}`;
+
+            firebase.database()
+                .ref(firebasePath)
+                .once('value', (snapshot) => {
+                    try {
+                        if (snapshot.exists() && snapshot.val()) {
+                            const dadosDiarios = snapshot.val();
+                            this.processarDadosTabelaDiaria(dadosDiarios, dataFormatada);
+                            this.$buefy.toast.open({
+                                message: `Dados carregados para ${this.formatarDataParaExibicao(dataFormatada)}`,
+                                type: 'is-success',
+                                position: 'is-top'
+                            });
+                        } else {
+                            this.clearData();
+                            this.$buefy.toast.open({
+                                message: `Nenhum dado encontrado para ${this.formatarDataParaExibicao(dataFormatada)}`,
+                                type: 'is-warning',
+                                position: 'is-top'
+                            });
+                        }
+                        this.$store.commit("stopLoading");
+                    } catch (error) {
+                        this.$store.commit("stopLoading");
+                        this.$buefy.toast.open({
+                            message: "Erro ao carregar dados da data específica: " + error.message,
+                            type: 'is-danger',
+                            position: 'is-top'
+                        });
+                    }
+                }, (error) => {
+                    this.$store.commit("stopLoading");
+                    this.$buefy.toast.open({
+                        message: "Erro ao carregar dados: " + error.message,
+                        type: 'is-danger',
+                        position: 'is-top'
+                    });
+                });
+        },
+
+        voltarParaHoje() {
+            this.dataSelecionadaFormatted = this.formatDateToString(new Date());
+            if (this.selectedFicha) {
+                this.startRealtimeDataLoading();
+                this.$buefy.toast.open({
+                    message: 'Voltando para dados de hoje em tempo real',
+                    type: 'is-info',
+                    position: 'is-top'
+                });
+            }
+        },
+
+        formatDateToString(date) {
+            if (!date) return '';
+
+            // Se já for string no formato YYYY-MM-DD, retornar diretamente
+            if (typeof date === 'string' && date.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                return date;
+            }
+
+            // Se for objeto Date, formatar
+            const dateObj = new Date(date);
+            const year = dateObj.getFullYear();
+            const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+            const day = String(dateObj.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        },
+
+        processarDadosTabelaDiaria(dadosDiarios, dataString) {
+            var thisVM = this;
+
+            thisVM.rankingColaboradores = [];
+            thisVM.separacoes = [];
+            thisVM.colaboradoresDisponiveis = [];
+            thisVM.produtosDisponiveis = [];
+
+            if (dataString === undefined || dataString == null) {
+                dataString = this.formatDateToString(new Date());
+            }
+
+            if (!dadosDiarios.itens) {
+                thisVM.$buefy.toast.open({
+                    message: 'Nenhum dado de produção encontrado para esta data',
+                    type: 'is-warning',
+                    position: 'is-top'
+                });
+                return;
+            }
+
+            Object.keys(dadosDiarios.itens).forEach((chaveItem, index) => {
+                const item = dadosDiarios.itens[chaveItem];
+
+                if (!item || (!item.idColaborador && !item.nomeColaborador)) {
+                    alert('Item inválido na tabela diária:' + item);
+                    return;
+                }
+
+                const valorPorKg = (item.valorPorKgCent || item.valorPorKg || 0) / (item.valorPorKgCent ? 100 : 1);
+                const valorTotal = (item.valorTotalCent || item.valorTotal || 0) / (item.valorTotalCent ? 100 : 1);
+                const valorPorPessoa = (item.valorPorPessoaCent || item.valorPorPessoa || 0) / (item.valorPorPessoaCent ? 100 : 1);
+
+                const idColaborador = item.idColaborador || `colab_${item.nomeColaborador.replace(/\s+/g, '_').toLowerCase()}`;
+                const idProduto = item.idProduto || `produto_${item.material.replace(/\s+/g, '_').toLowerCase()}`;
+
+                const separacao = {
+                    idSeparacao: `tabela_diaria_${idColaborador}_${index}_${Date.now()}`,
+                    idColaborador: idColaborador,
+                    nomeColaborador: item.nomeColaborador || 'Não informado',
+                    codigoColaborador: item.codigoColaborador || '',
+                    idProduto: idProduto,
+                    nomeProduto: item.material || item.nomeProduto || 'Não informado',
+                    quantidade: item.pesoKg || item.quantidade || 0,
+                    dataSeparacao: item.dataSeparacao,
+                    valorSeparacaoPorSeparador: valorTotal,
+                    custoSeparacaoPorKG: valorPorKg,
+                    precoVenda: item.precoVenda || 0,
+                    precoCompra: item.precoCompra || 0,
+                    categoriaProduto: item.categoriaProduto || '',
+                    valorVendaTotalPorSeparador: item.valorVendaTotal || 0,
+                    valorCompraTotalPorSeparador: item.valorCompraTotal || 0,
+                    valorGanhoTotalPorSeparador: item.valorGanhoTotal || 0,
+                    NomeEquipe: item.equipe || item.NomeEquipe || '',
+                    idPesagem: item.idPesagem || '',
+                    totalPesagem: item.pesoKg || item.totalPesagem || 0,
+                    estorno: item.estorno || false,
+                    estornado: item.estornado || false,
+                    finalizada: item.finalizada !== undefined ? item.finalizada : true,
+                    horaInicio: item.horaInicio || '',
+                    horaTermino: item.horaTermino || '',
+                    qtdPessoasEquipe: item.qtdPessoasEquipe || 0,
+                    valorPorPessoa: valorPorPessoa
+                };
+
+                thisVM.separacoes.push(separacao);
+
+                let colaboradorExistente = thisVM.rankingColaboradores.find(c => c.id === idColaborador);
+                if (!colaboradorExistente) {
+                    thisVM.rankingColaboradores.push({
+                        id: idColaborador,
+                        nome: item.nomeColaborador || 'Não informado',
+                        volumeTotalProducao: item.pesoKg || item.quantidade || 0,
+                        valorTotalProducao: valorTotal,
+                        Produtos: [{
+                            nome: item.material || item.nomeProduto || 'Não informado',
+                            volume: item.pesoKg || item.quantidade || 0,
+                            valorSeparacao: valorTotal
+                        }]
+                    });
+                } else {
+                    colaboradorExistente.volumeTotalProducao += item.pesoKg || item.quantidade || 0;
+                    colaboradorExistente.valorTotalProducao += valorTotal;
+
+                    const produtoExistente = colaboradorExistente.Produtos.find(p => p.nome === (item.material || item.nomeProduto));
+                    if (produtoExistente) {
+                        produtoExistente.volume += item.pesoKg || item.quantidade || 0;
+                        produtoExistente.valorSeparacao += valorTotal;
+                    } else {
+                        colaboradorExistente.Produtos.push({
+                            nome: item.material || item.nomeProduto || 'Não informado',
+                            volume: item.pesoKg || item.quantidade || 0,
+                            valorSeparacao: valorTotal
+                        });
+                    }
+                }
+
+                let foundColaborador = thisVM.colaboradoresDisponiveis.find(c => c.id === idColaborador);
+                if (!foundColaborador) {
+                    thisVM.colaboradoresDisponiveis.push({
+                        id: idColaborador,
+                        nome: item.nomeColaborador || 'Não informado',
+                        codigo: item.codigoColaborador || ''
+                    });
+                }
+
+                let foundProduto = thisVM.produtosDisponiveis.find(p => p.id === idProduto);
+                if (!foundProduto) {
+                    thisVM.produtosDisponiveis.push({
+                        id: idProduto,
+                        nome: item.material || item.nomeProduto || 'Não informado',
+                        codigo: item.codigoProduto || ''
+                    });
+                }
+            });
+
+            thisVM.rankingColaboradores.sort((a, b) => b.volumeTotalProducao - a.volumeTotalProducao);
+            thisVM.colaboradoresDisponiveis.sort((a, b) => a.nome.localeCompare(b.nome));
+            thisVM.produtosDisponiveis.sort((a, b) => a.nome.localeCompare(b.nome));
+
+            thisVM.generatePivot();
+
+            if (thisVM.separacoes.length > 0) {
+                thisVM.$buefy.toast.open({
+                    message: `${thisVM.separacoes.length} registros de produção carregados`,
+                    type: 'is-success',
+                    position: 'is-top',
+                    duration: 3000
+                });
+            }
+        },
+
+        limparFiltros() {
+            this.selectedColaboradores = [];
+            this.selectedProdutos = [];
+            this.incluirEstornos = false;
+            this.incluirSimbolosEUnidadesDeMedida = false;
+            this.finalizadas = null;
+            this.dataInicioEntrada = null;
+            this.dataFimEntrada = null;
+            this.dataInicioSeparacao = null;
+            this.dataFimSeparacao = null;
+            this.filterKey = "";
+
+            if (typeof this.FilterDataInicioSeparacao !== 'undefined') this.FilterDataInicioSeparacao = null;
+            if (typeof this.FilterDataFimSeparacao !== 'undefined') this.FilterDataFimSeparacao = null;
+
+            this.$nextTick(() => {
+                if (typeof this.generatePivot === 'function') this.generatePivot();
+            });
+        },
+
+        toggleFullscreen() {
+            this.fullscreen = !this.fullscreen;
+
+            if (this.fullscreen) {
+                document.body.style.overflow = 'hidden';
+                setTimeout(() => {
+                    window.scrollTo(0, 0);
+                }, 100);
+            } else {
+                document.body.style.overflow = '';
+            }
+        },
+
+        getRowClass(index) {
+            return index % 2 === 0 ? 'linha-branca' : 'linha-cinza';
+        },
+
+        handleListenerChange() {
+            if (this.fichasListener) {
+                this.fichasListener();
+            }
+            this.getFichas();
+        },
+
+        startRealtimeDataLoading() {
+            var thisVM = this;
+
+            if (!thisVM.selectedFicha) return;
+
+            if (thisVM.dataListener && typeof thisVM.dataListener === 'function') {
+                thisVM.dataListener();
+            }
+
+            if (thisVM.analyticsListener && typeof thisVM.analyticsListener === 'function') {
+                thisVM.analyticsListener();
+            }
+
+            if (thisVM.firebaseRef) {
+                thisVM.firebaseRef.off();
+            }
+
+            thisVM.dataListener = null;
+            thisVM.analyticsListener = null;
+            thisVM.firebaseRef = null;
+
+            thisVM.$store.commit("startLoading");
+            thisVM.realtimeConnected = false;
+
+            const hoje = thisVM.formatDateToString(new Date());
+
+            if (!firebase.database) {
+                thisVM.$store.commit("stopLoading");
+                thisVM.$buefy.toast.open({
+                    message: "Erro: Firebase não inicializado",
+                    type: 'is-danger',
+                    position: 'is-top'
+                });
+                return;
+            }
+
+            const firebasePath = `${thisVM.$route.params.time}/Analytics/TabelaProducaoDiaria/${hoje}`;
+
+            thisVM.firebaseRef = firebase.database().ref(firebasePath);
+
+            thisVM.analyticsListener = thisVM.firebaseRef.on('value', (snapshot) => {
+                try {
+                    if (!snapshot) {
+                        thisVM.realtimeConnected = false;
+                        thisVM.clearData();
+                        thisVM.$store.commit("stopLoading");
+                        return;
+                    }
+
+                    thisVM.realtimeConnected = true;
+
+                    if (snapshot.exists() && snapshot.val()) {
+                        const dadosDiarios = snapshot.val();
+                        thisVM.processarDadosTabelaDiaria(dadosDiarios);
+                    } else {
+                        thisVM.clearData();
+                    }
+
+                    thisVM.$store.commit("stopLoading");
+                } catch (error) {
+                    thisVM.realtimeConnected = false;
+                    thisVM.$store.commit("stopLoading");
+                    thisVM.$buefy.toast.open({
+                        message: "Erro ao processar dados da tabela diária: " + error.message,
+                        type: 'is-danger',
+                        position: 'is-top'
+                    });
+                }
+            }, (error) => {
+                thisVM.realtimeConnected = false;
+                thisVM.$store.commit("stopLoading");
+                thisVM.$buefy.toast.open({
+                    message: "Erro ao carregar dados em tempo real: " + error.message,
+                    type: 'is-danger',
+                    position: 'is-top'
+                });
+            });
+
+            thisVM.carregarTotaisUltimos7Dias();
+        },
+
+        formatValue(value) {
+            return value;
+        },
+
+        generatePivot() {
+            let thisVM = this;
+            thisVM.$store.commit("startLoading");
+            thisVM.pivotData.splice(0, thisVM.pivotData.length);
+            thisVM.pivotData.push([
+                "Nome Colaborador",
+                "Registro Colaborador",
+                "Colaborador",
+                "Categoria Produto",
+                "Produto",
+                "Quantidade Por Colaborador",
+                "Data Separação",
+                "Valor Separação Por Separador",
+                "Preço Venda",
+                "Preço Compra",
+                "Custo Separação Por KG",
+                "Valor Venda Total Por Separador",
+                "Valor Compra Total Por Separador",
+                "Ganho Total Por Separador",
+                "Nome Equipe",
+                "Id Pesagem",
+                "Pesagem Total",
+                "Semana",
+                "Dia Semana",
+            ]);
+
+            thisVM.filteredSeparacoes.forEach((separacao) => {
+                let dataSeparacao = new Date(separacao.dataSeparacao);
+
+                dataSeparacao.setHours(6, 1, 0, 0);
+                dataSeparacao = DateTime.fromJSDate(dataSeparacao);
+
+                thisVM.pivotData.push([
+                    separacao.nomeColaborador,
+                    separacao.codigoColaborador,
+                    `${separacao.codigoColaborador} -  ${separacao.nomeColaborador}`,
+                    separacao.categoriaProduto != null ? separacao.categoriaProduto : "",
+                    separacao.nomeProduto,
+                    separacao.quantidade,
+                    `${dataSeparacao.day}/${dataSeparacao.month}`,
+                    separacao.valorSeparacaoPorSeparador,
+                    separacao.precoVenda,
+                    separacao.precoCompra,
+                    separacao.custoSeparacaoPorKG,
+                    separacao.valorVendaTotalPorSeparador,
+                    separacao.valorCompraTotalPorSeparador,
+                    separacao.valorGanhoTotalPorSeparador,
+                    separacao.NomeEquipe,
+                    separacao.idPesagem,
+                    separacao.totalPesagem,
+                    dataSeparacao.weekNumber,
+                    dataSeparacao.weekdayShort,
+                ]);
+            });
+            thisVM.$store.commit("stopLoading");
+        },
+
+        getFichas() {
+            var thisVM = this;
+            thisVM.$store.commit("startLoading");
+
+            if (this.fichasListener) {
+                this.fichasListener();
+            }
+
+            this.fichasListener = fichasService.getFichas(
+                this.$route.params.time,
+                (fichas) => {
+                    thisVM.fichas.splice(0, thisVM.fichas.length);
+                    fichas.forEach(ficha => {
+                        if (ficha.ativa) {
+                            thisVM.fichas.unshift(ficha);
+                            if (!thisVM.selectedFicha) {
+                                thisVM.selectedFicha = ficha;
+                            }
+                        }
+                    });
+                    thisVM.$store.commit("stopLoading");
+                },
+                (error) => {
+                    alert("Erro ao carregar fichas:" + error);
+                    thisVM.$store.commit("stopLoading");
+                }
+            );
+        },
+
+        getFirstDayOfMonth(year, month) {
+            return new Date(year, month, 1);
+        },
+
+        filterSeparacoesColaboradoresProdutos(separacoes) {
+            var thisVM = this;
+            var separacoesReturn = [];
+            for (let index = 0; index < Object.keys(separacoes).length; index++) {
+                const element = separacoes[Object.keys(separacoes)[index]];
+
+                let foundColaborador = thisVM.colaboradoresDisponiveis.find((c) => {
+                    return c.id == element.idColaborador;
+                });
+
+                if (foundColaborador == null) {
+                    thisVM.colaboradoresDisponiveis.push({
+                        id: element.idColaborador,
+                        nome: element.nomeColaborador,
+                        codigo: element.codigoColaborador,
+                    });
+                }
+                let foundProduto = thisVM.produtosDisponiveis.find((p) => {
+                    return p.id == element.idProduto;
+                });
+                if (foundProduto == null) {
+                    thisVM.produtosDisponiveis.push({
+                        id: element.idProduto,
+                        nome: element.nomeProduto,
+                        codigo: element.codigoProduto,
+                    });
+                }
+                separacoesReturn.unshift(element);
+            }
+
+            separacoesReturn = separacoesReturn.filter(
+                (separacao) =>
+                    (thisVM.FilterDataInicioSeparacao == null ||
+                        (thisVM.FilterDataInicioSeparacao != null &&
+                            DateTime.fromJSDate(new Date(separacao.dataSeparacao)) >=
+                            DateTime.fromJSDate(thisVM.FilterDataInicioEntrada))) &&
+                    (thisVM.FilterDataFimSeparacao == null ||
+                        (thisVM.FilterDataFimSeparacao != null &&
+                            DateTime.fromJSDate(new Date(separacao.dataSeparacao)) <=
+                            DateTime.fromJSDate(thisVM.FilterDataFimSeparacao)))
+            );
+
+            return separacoesReturn;
+        },
+
+        clearData: function () {
+            var thisVM = this;
+            thisVM.movimentacoes.splice(0, thisVM.movimentacoes.length);
+            thisVM.separacoes.splice(0, thisVM.separacoes.length);
+            thisVM.colaboradoresDisponiveis.splice(0, thisVM.colaboradoresDisponiveis.length);
+            thisVM.produtosDisponiveis.splice(0, thisVM.produtosDisponiveis.length);
+            thisVM.rankingColaboradores.splice(0, thisVM.rankingColaboradores.length);
+        }
+    },
+    beforeDestroy() {
+        window.removeEventListener('fichas-service-listener-changed', this.handleListenerChange);
+
+        if (this.fichasListener) {
+            this.fichasListener();
+        }
+        if (this.dataListener) {
+            this.dataListener();
+        }
+        if (this.analyticsListener) {
+            this.analyticsListener();
+        }
+
+        if (this.fullscreen) {
+            document.body.style.overflow = '';
+        }
+    },
+    computed: {
+        cols() {
+            if (this.separarPorDia) {
+                return ["Semana", "Data Separação", "Dia Semana", "Produto"];
+            }
+            return ["Produto"];
+        },
+        rows() {
+            return ["Colaborador"];
+        },
+        vals() {
+            var vals = [];
+            vals.push(this.selectedValue);
+            return vals;
+        },
+
+        filteredSeparacoes() {
+            let thisVM = this;
+            let incluirEstornos = thisVM.incluirEstornos;
+
+            return thisVM.separacoes.filter((s) => {
+                let Return =
+                    (thisVM.selectedProdutos.length == 0 ||
+                        (thisVM.selectedProdutos.length > 0 &&
+                            thisVM.selectedProdutos.find((p) => p == s.idProduto) != null)) &&
+                    (thisVM.selectedColaboradores.length == 0 ||
+                        (thisVM.selectedColaboradores.length > 0 &&
+                            thisVM.selectedColaboradores.find((c) => c == s.idColaborador) !=
+                            null)) &&
+                    ((incluirEstornos &&
+                        ((s.estornado != null && s.estornado === true) ||
+                            (s.estorno != null && s.estorno === true))) ||
+                        ((s.estornado == null || s.estornado === false) &&
+                            (s.estorno == null || s.estorno === false)) ||
+                        (!incluirEstornos &&
+                            (s.estornado == null || s.estornado === false) &&
+                            (s.estorno == null || s.estorno === false)));
+
+                return Return;
+            });
+        },
+        sortedColaboradores() {
+            let thisVM = this;
+            let colab = thisVM.colaboradoresDisponiveis;
+            return colab.sort(function (a, b) {
+                a = a.nome.toUpperCase();
+                b = b.nome.toUpperCase();
+                return a === b ? 0 : a > b ? 1 : -1;
+            });
+        },
+        sortedProdutos() {
+            let thisVM = this;
+            let prod = thisVM.produtosDisponiveis;
+            return prod.sort(function (a, b) {
+                a = a.nome.toUpperCase();
+                b = b.nome.toUpperCase();
+                return a === b ? 0 : a > b ? 1 : -1;
+            });
+        },
+        agregadoresFiltrados() {
+            let thisVM = this;
+            let agregadoresFiltrados = {
+                qtdTotal: 0,
+                custoSeparacaoMedio: 0,
+                valorSeparacaoTotal: 0,
+            };
+            thisVM.filteredSeparacoes.forEach((s) => {
+                agregadoresFiltrados.qtdTotal += s.quantidade;
+                agregadoresFiltrados.valorSeparacaoTotal +=
+                    s.valorSeparacaoPorSeparador;
+            });
+            if (agregadoresFiltrados.qtdTotal > 0) {
+                agregadoresFiltrados.custoSeparacaoMedio =
+                    agregadoresFiltrados.valorSeparacaoTotal /
+                    agregadoresFiltrados.qtdTotal;
+            }
+            return agregadoresFiltrados;
+        },
+        totaisPeriodo() {
+            let thisVM = this;
+
+            let totaisDiaCalculado = { qtd: 0, valor: 0, custoMedio: 0 };
+
+            // Soma simples de todos os itens visíveis na tabela
+            for (let separacao of thisVM.filteredSeparacoes) {
+                totaisDiaCalculado.qtd += Number(separacao.quantidade) || 0;
+                totaisDiaCalculado.valor += Number(separacao.valorSeparacaoPorSeparador) || 0;
+            }
+
+            totaisDiaCalculado.custoMedio = totaisDiaCalculado.qtd > 0 ?
+                totaisDiaCalculado.valor / totaisDiaCalculado.qtd : 0;
+
+            return {
+                dia: totaisDiaCalculado,
+                semana: thisVM.totaisSemana || { qtd: 0, valor: 0, custoMedio: 0 },
+                mes: thisVM.totaisMes || { qtd: 0, valor: 0, custoMedio: 0 }
+            };
+        },
+
+        // NOVO COMPUTED: SOMA DOS TRÊS TOTAIS ANTERIORES
+        totaisGeral() {
+            let thisVM = this;
+
+            // Soma das quantidades (kg) de dia, semana e mês
+            const qtdTotal = thisVM.totaisPeriodo.dia.qtd +
+                thisVM.totaisPeriodo.semana.qtd +
+                thisVM.totaisPeriodo.mes.qtd;
+
+            // Soma dos valores (R$) de dia, semana e mês
+            const valorTotal = thisVM.totaisPeriodo.dia.valor +
+                thisVM.totaisPeriodo.semana.valor +
+                thisVM.totaisPeriodo.mes.valor;
+
+            // Cálculo do custo médio geral
+            const custoMedio = qtdTotal > 0 ? valorTotal / qtdTotal : 0;
+
+            return {
+                qtd: qtdTotal,
+                valor: valorTotal,
+                custoMedio: custoMedio
+            };
+        }
+    },
+};
+</script>
+
+<style scoped>
+.total-dia {
+    background-color: #e8f5e8;
+    font-weight: bold;
+    color: #2d5a2d;
+}
+
+.total-semana {
+    background-color: #e1f3ff;
+    font-weight: bold;
+    color: #1a5490;
+}
+
+.total-mes {
+    background-color: #fff3e0;
+    font-weight: bold;
+    color: #b8860b;
+}
+
+.total-dia td,
+.total-semana td,
+.total-mes td {
+    border-color: #27ae60;
+    padding: 8px;
+}
+
+.fullscreen-mode>.container {
+    width: 100%;
+    max-width: 100%;
+    padding: 0 20px;
+}
+
+.fullscreen-mode .cabecalho-verde {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+.fullscreen-mode .title,
+.fullscreen-mode .subtitle {
+    font-size: 1.5rem;
+}
+
+.fullscreen-mode .box {
+    margin-bottom: 25px;
+    padding: 20px;
+}
+
+.fullscreen-mode {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 100;
+    background: white;
+    overflow-y: auto;
+    padding: 20px;
+}
+
+.fullscreen-mode .table-container {
+    max-height: calc(100vh - 100px);
+    overflow-y: auto;
+}
+
+.fullscreen-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: white;
+    z-index: 99;
+}
+
+.fullscreen-mode .separacoes-table {
+    font-size: 1.1rem;
+}
+
+.fullscreen-mode .separacoes-table th,
+.fullscreen-mode .separacoes-table td {
+    padding: 12px 8px;
+}
+
+.fullscreen-exit-btn {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 101;
+}
+
+.titulo-azul {
+    background-color: #3498db;
+    color: white;
+    padding: 15px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+}
+
+.data-rosa {
+    background-color: #ff9ff3;
+    color: #2c2c54;
+    padding: 10px 15px;
+    border-radius: 8px;
+    font-weight: bold;
+}
+
+.cabecalho-verde {
+    background-color: #2ecc71;
+    color: white;
+}
+
+.cabecalho-verde th {
+    color: white;
+    border-color: #27ae60;
+    text-align: center;
+    vertical-align: middle;
+    font-weight: bold;
+    font-size: 0.95rem;
+}
+
+.total-verde {
+    background-color: #a8e6a8;
+    font-weight: bold;
+}
+
+.total-verde td {
+    border-color: #27ae60;
+}
+
+.linha-branca {
+    background-color: #ffffff;
+}
+
+.linha-cinza {
+    background-color: #f0f0f0;
+}
+
+.linha-estornada {
+    background-color: #FFCCCB !important;
+    opacity: 0.8;
+}
+
+.separacoes-table {
+    border-collapse: collapse;
+    font-family: Arial, sans-serif;
+}
+
+.separacoes-table td,
+.separacoes-table th {
+    text-align: center;
+    vertical-align: middle;
+    padding: 0.5em;
+    border: 1px solid #d4d4d4;
+    font-size: 0.9rem;
+}
+
+.number-cell {
+    text-align: right;
+    font-weight: 500;
+}
+
+.excel-style {
+    border: 2px solid #2ecc71;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    margin-bottom: 20px;
+}
+
+.table-container {
+    overflow-x: auto;
+    max-width: 100%;
+}
+
+@keyframes pulse {
+    0% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.5;
+    }
+
+    100% {
+        opacity: 1;
+    }
+}
+
+@media screen and (max-width: 768px) {
+    .separacoes-table {
+        font-size: 0.8rem;
+    }
+
+    .separacoes-table td,
+    .separacoes-table th {
+        padding: 0.3em;
+    }
+
+    .titulo-azul h1 {
+        font-size: 1.5rem;
+    }
+
+    .data-rosa p {
+        font-size: 1rem;
+    }
+}
+
+.field .label {
+    font-weight: bold;
+    color: #2c3e50;
+}
+
+.select select {
+    border-radius: 6px;
+    border: 2px solid #bdc3c7;
+    transition: border-color 0.3s ease;
+}
+
+.select select:focus {
+    border-color: #3498db;
+    box-shadow: 0 0 5px rgba(52, 152, 219, 0.3);
+}
+
+.box {
+    border-radius: 8px;
+    border: 1px solid #ecf0f1;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    margin-bottom: 20px;
+}
+
+.box .subtitle {
+    color: #2c3e50;
+    border-bottom: 2px solid #ecf0f1;
+    padding-bottom: 10px;
+    margin-bottom: 15px;
+}
+
+.checkbox {
+    margin-right: 15px;
+    margin-bottom: 10px;
+}
+
+.radio {
+    margin-right: 15px;
+}
+
+.notification.is-info {
+    background-color: #d5dbdb;
+    color: #2c3e50;
+    border-left: 4px solid #3498db;
+}
+
+.notification.is-success.is-light {
+    background-color: #d4edda;
+    color: #155724;
+    border-left: 4px solid #27ae60;
+}
+
+.notification.is-warning.is-light {
+    background-color: #fff3cd;
+    color: #856404;
+    border-left: 4px solid #f39c12;
+}
+
+.separacoes-table tr {
+    transition: background-color 0.3s ease;
+}
+
+.separacoes-table tr:hover {
+    background-color: #f8f9fa !important;
+}
+
+.b-field select[multiple] {
+    min-height: 150px;
+    border-radius: 6px;
+    border: 2px solid #bdc3c7;
+    padding: 8px;
+}
+
+.b-field select[multiple]:focus {
+    border-color: #3498db;
+    box-shadow: 0 0 5px rgba(52, 152, 219, 0.3);
+}
+
+.subtitle.is-4 {
+    color: #2c3e50;
+    border-bottom: 3px solid #3498db;
+    padding-bottom: 8px;
+    margin-bottom: 20px;
+}
+</style>
