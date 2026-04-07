@@ -1,0 +1,189 @@
+<template>
+    <div class="modal" :class="{ 'is-active': isActive }">
+        <div class="modal-background" @click="fechar"></div>
+        <div class="modal-card">
+            <header class="modal-card-head">
+                <p class="modal-card-title">
+                    ➕ Cadastrar Novo Cliente/Fornecedor
+                </p>
+                <button class="delete" aria-label="close" @click="fechar"></button>
+            </header>
+            <section class="modal-card-body">
+                <!-- Formulário inline sem usar componente externo -->
+                <div class="form-pessoa">
+                    <div class="field is-horizontal">
+                        <div class="field-label is-normal">
+                            <label class="label">Nome</label>
+                        </div>
+                        <div class="field-body">
+                            <div class="field">
+                                <p class="control">
+                                    <input class="input" v-model="pessoaLocal.nome" type="text" placeholder="Nome"
+                                        @keyup.enter="salvar" />
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="field is-horizontal">
+                        <div class="field-label is-normal">
+                            <label class="label">Telefone</label>
+                        </div>
+                        <div class="field-body">
+                            <div class="field">
+                                <p class="control">
+                                    <input class="input" v-model="pessoaLocal.telefone" type="text"
+                                        placeholder="Telefone" @keyup.enter="salvar" />
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="field is-horizontal">
+                        <div class="field-label is-normal">
+                            <label class="label">E-mail</label>
+                        </div>
+                        <div class="field-body">
+                            <div class="field">
+                                <div class="control has-icons-left">
+                                    <input class="input" type="email" v-model="pessoaLocal.email" placeholder="Email"
+                                        @keyup.enter="salvar" />
+                                    <span class="icon is-left">
+                                        <i class="fas fa-envelope"></i>
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="field is-horizontal">
+                        <div class="field-label is-normal">
+                            <label class="label">Tipo</label>
+                        </div>
+                        <div class="field-body">
+                            <div class="field">
+                                <div class="select is-fullwidth">
+                                    <select v-model="pessoaLocal.tipo">
+                                        <option value="Fornecedor/Cliente">Fornecedor/Cliente</option>
+                                        <option value="Fornecedor">Fornecedor</option>
+                                        <option value="Cliente">Cliente</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+            <footer class="modal-card-foot">
+                <button class="button is-success" @click="salvar" :class="{ 'is-loading': salvando }">
+                    💾 Salvar e Fechar
+                </button>
+                <button class="button" @click="fechar">
+                    ❌ Cancelar
+                </button>
+            </footer>
+        </div>
+    </div>
+</template>
+
+<script>
+import firebase from "firebase";
+
+export default {
+    name: "ModalCadastroPessoa",
+    props: {
+        isActive: {
+            type: Boolean,
+            default: false
+        },
+        timeId: {
+            type: String,
+            required: true
+        }
+    },
+    data() {
+        return {
+            pessoaLocal: {
+                id: null,
+                nome: "",
+                email: "",
+                telefone: "",
+                tipo: "Cliente"
+            },
+            salvando: false
+        };
+    },
+    methods: {
+        // Fecha o modal e limpa os dados
+        fechar() {
+            this.limpar();
+            this.$emit("fechar");
+        },
+
+        // Valida e salva a pessoa no Firebase
+        async salvar() {
+            // Validação de campos obrigatórios
+            if (!this.pessoaLocal.nome || !this.pessoaLocal.email) {
+                alert("⚠️ Por favor, preencha nome e email");
+                return;
+            }
+
+            this.salvando = true;
+
+            try {
+                // Gera um ID único para a nova pessoa
+                const id = firebase
+                    .database()
+                    .ref()
+                    .child(this.timeId + "/Pessoas")
+                    .push().key;
+
+                // Salva os dados no Firebase
+                await firebase
+                    .database()
+                    .ref(this.timeId + "/Pessoas/" + id)
+                    .set({
+                        nome: this.pessoaLocal.nome,
+                        email: this.pessoaLocal.email,
+                        telefone: this.pessoaLocal.telefone,
+                        tipo: this.pessoaLocal.tipo
+                    });
+
+                // Emite evento de sucesso com os dados da pessoa
+                this.$emit("salvo", { ...this.pessoaLocal, id });
+
+                // Fecha o modal
+                this.fechar();
+
+            } catch (error) {
+                alert("❌ Erro ao salvar: " + error.message);
+                this.$emit("erro", error);
+            } finally {
+                this.salvando = false;
+            }
+        },
+
+        // Limpa os campos do formulário
+        limpar() {
+            this.pessoaLocal = {
+                id: null,
+                nome: "",
+                email: "",
+                telefone: "",
+                tipo: "Cliente"
+            };
+        }
+    }
+};
+</script>
+
+<style scoped>
+.modal-card {
+    max-width: 640px;
+    width: 90%;
+}
+
+.form-pessoa {
+    padding: 1rem 0;
+}
+</style>
