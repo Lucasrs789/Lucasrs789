@@ -1,0 +1,684 @@
+<template>
+    <layout-default>
+        <div class="main-container">
+            <!-- Cabeçalho -->
+            <div class="box header-box">
+                <div class="level">
+                    <div class="level-left">
+                        <button class="button is-light" @click="voltar">
+                            <b-icon icon="arrow-left" size="is-small"></b-icon>
+                            <span>Voltar</span>
+                        </button>
+                    </div>
+                    <div class="level-item has-text-centered">
+                        <div class="title is-3">
+                            <b-icon :icon="tipoConta === 'Pagar' ? 'cash-minus' : 'cash-plus'" size="is-medium"
+                                :type="tipoConta === 'Pagar' ? 'is-danger' : 'is-success'">
+                            </b-icon>
+                            {{ tipoConta === 'Pagar' ? 'Conta a Pagar' : 'Conta a Receber' }}
+                        </div>
+                    </div>
+                    <div class="level-right">
+                        <span class="tag is-medium" :class="statusClass">{{ statusGeral }}</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Carregando -->
+            <div v-if="loading" class="box has-text-centered">
+                <b-loading :is-full-page="false" :active="loading"></b-loading>
+                <b-icon icon="loading" size="is-large" custom-class="rotating"></b-icon>
+                <p class="mt-4">Carregando detalhes da conta...</p>
+            </div>
+
+            <!-- Conta não encontrada -->
+            <div v-else-if="!conta" class="box">
+                <div class="notification is-warning">
+                    <b-icon icon="alert-circle" class="mr-2"></b-icon>
+                    Conta não encontrada ou foi removida.
+                </div>
+            </div>
+
+            <!-- Conteúdo principal -->
+            <div v-else class="main-content">
+                <!-- Informações principais -->
+                <div class="box">
+                    <h2 class="title is-4">📋 Informações Gerais</h2>
+                    <div class="columns">
+                        <div class="column is-half">
+                            <div class="field">
+                                <label class="label">{{ tipoConta === 'Pagar' ? 'Fornecedor' : 'Cliente' }}:</label>
+                                <p class="has-text-weight-semibold is-size-5">{{ conta.nomeParceiro || 'Sem nome' }}</p>
+                            </div>
+                            <div class="field">
+                                <label class="label">Tipo:</label>
+                                <p>{{ conta.tipoFatoGerador || 'N/A' }}</p>
+                            </div>
+                            <div class="field">
+                                <label class="label">Valor Total:</label>
+                                <p class="has-text-weight-bold has-text-success is-size-5">{{ conta.valorTotal |
+                                    toCurrency }}</p>
+                            </div>
+                        </div>
+                        <div class="column is-half">
+                            <div class="field">
+                                <label class="label">Pasta de Operação:</label>
+                                <div v-if="loadingPastaOperacao" class="is-flex is-align-items-center">
+                                    <b-icon icon="loading" custom-class="rotating" size="is-small"></b-icon>
+                                    <span class="ml-2">Carregando...</span>
+                                </div>
+                                <div v-else-if="nomePastaOperacao">
+                                    <p class="has-text-weight-semibold">{{ nomePastaOperacao }}</p>
+                                    <button class="button is-small is-info mt-2" @click="navegarParaMovimentacao"
+                                        v-if="conta.idPastaOperacao && conta.idFatoGerador">
+                                        <b-icon icon="eye" size="is-small"></b-icon>
+                                        <span>Ver Movimentação</span>
+                                    </button>
+                                </div>
+                                <p v-else>N/A</p>
+                            </div>
+                            <div class="field">
+                                <label class="label">Criada em:</label>
+                                <p>{{ formatarData(conta.dataCriacao) }}</p>
+                            </div>
+                            <div class="field">
+                                <label class="label">Parcelas:</label>
+                                <p>{{ conta.quantidadeParcelas || 1 }}</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Lista de parcelas -->
+                <div class="box">
+                    <h2 class="title is-4">💳 Parcelas</h2>
+                    <div class="table-container">
+                        <table class="table is-bordered is-striped is-hoverable is-fullwidth">
+                            <thead>
+                                <tr>
+                                    <th>Nº</th>
+                                    <th>Valor</th>
+                                    <th>Vencimento</th>
+                                    <th>Status</th>
+                                    <th>Data Pagamento</th>
+                                    <th>Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="parcela in conta.parcelas" :key="parcela.id">
+                                    <td class="has-text-weight-bold">{{ parcela.numero }}</td>
+                                    <td class="has-text-weight-semibold">{{ parcela.valor | toCurrency }}</td>
+                                    <td>{{ formatarData(parcela.data) }}</td>
+                                    <td>
+                                        <span class="tag" :class="getStatusClass(parcela.status)">
+                                            {{ parcela.status || 'Pendente' }}
+                                        </span>
+                                    </td>
+                                    <td>{{ formatarData(parcela.dataPagamento) }}</td>
+                                    <td>
+                                        <div class="buttons are-small">
+                                            <button class="button is-success is-small" @click="marcarComoPaga(parcela)"
+                                                title="Marcar como Paga"
+                                                v-if="parcela.status !== 'Pago' && parcela.status !== 'Cancelado'">
+                                                <b-icon icon="check" size="is-small"></b-icon>
+                                            </button>
+                                            <!-- <button class="button is-info is-small" @click="editarParcela(parcela)"
+                                                title="Editar Parcela">
+                                                <b-icon icon="pencil" size="is-small"></b-icon>
+                                            </button> -->
+                                        </div>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Resumo financeiro -->
+                <div class="box">
+                    <h2 class="title is-4">📊 Resumo</h2>
+                    <div class="columns is-multiline">
+                        <div class="column is-3">
+                            <div class="has-text-centered">
+                                <p class="heading">Total Parcelas</p>
+                                <p class="title is-3 has-text-info">{{ conta.parcelas.length }}</p>
+                            </div>
+                        </div>
+                        <div class="column is-3">
+                            <div class="has-text-centered">
+                                <p class="heading">Valor Total</p>
+                                <p class="title is-3 has-text-primary">{{ valorTotalParcelas | toCurrency }}</p>
+                            </div>
+                        </div>
+                        <div class="column is-3">
+                            <div class="has-text-centered">
+                                <p class="heading">Pendentes</p>
+                                <p class="title is-3 has-text-warning">{{ parcelasPendentes.length }}</p>
+                            </div>
+                        </div>
+                        <div class="column is-3">
+                            <div class="has-text-centered">
+                                <p class="heading">Vencidas</p>
+                                <p class="title is-3 has-text-danger">{{ parcelasVencidas.length }}</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="columns">
+                        <div class="column is-3 is-offset-9">
+                            <div class="has-text-centered">
+                                <p class="heading">Pagas</p>
+                                <p class="title is-3 has-text-success">{{ parcelasPagas.length }}</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Ações -->
+                <!-- <div class="box">
+                    <h2 class="title is-4">⚙️ Ações</h2>
+                    <div class="buttons is-centered">
+                        <button class="button is-danger" @click="excluirConta" v-if="parcelasPagas.length === 0">
+                            <b-icon icon="delete"   class="mr-2"></b-icon>
+                            Excluir Conta
+                        </button>
+                        <button class="button is-warning" @click="cancelarConta"
+                            v-if="statusGeral === 'Pendente' || statusGeral === 'Vencido'">
+                            <b-icon icon="cancel"   class="mr-2"></b-icon>
+                            Cancelar Conta
+                        </button>
+                    </div>
+                </div> -->
+            </div>
+        </div>
+    </layout-default>
+</template>
+
+<script>
+import firebase from "firebase";
+
+export default {
+    name: "DetalhesConta",
+    data() {
+        return {
+            loading: true,
+            conta: null,
+            tipoConta: null, // Será definido pela rota
+            // Dados da pasta de operação relacionada à conta
+            nomePastaOperacao: null,
+            loadingPastaOperacao: false
+        };
+    },
+    computed: {
+        statusGeral() {
+            if (!this.conta || !this.conta.parcelas || this.conta.parcelas.length === 0) {
+                return 'Pendente';
+            }
+
+            // Se todas as parcelas estão pagas
+            if (this.conta.parcelas.every(p => p.status === 'Pago')) {
+                return 'Pago';
+            }
+
+            // Se existe alguma parcela vencida
+            if (this.conta.parcelas.some(p => p.status === 'Vencido')) {
+                return 'Vencido';
+            }
+
+            // Se existe alguma parcela pendente
+            if (this.conta.parcelas.some(p => p.status === 'Pendente' || !p.status)) {
+                return 'Pendente';
+            }
+
+            return 'Outro';
+        },
+
+        statusClass() {
+            const classes = {
+                'Pago': 'is-success',
+                'Vencido': 'is-danger',
+                'Pendente': 'is-warning',
+                'Cancelado': 'is-light'
+            };
+            return classes[this.statusGeral] || 'is-light';
+        },
+
+        valorTotalParcelas() {
+            if (!this.conta || !this.conta.parcelas) return 0;
+            return this.conta.parcelas.reduce((total, parcela) => {
+                return total + (parcela.valor || 0);
+            }, 0);
+        },
+
+        parcelasPendentes() {
+            if (!this.conta || !this.conta.parcelas) return [];
+            return this.conta.parcelas.filter(p => {
+                const status = p.status || 'Pendente';
+                return status === 'Pendente' && new Date(p.data) >= new Date();
+            });
+        },
+
+        parcelasVencidas() {
+            if (!this.conta || !this.conta.parcelas) return [];
+            return this.conta.parcelas.filter(p => {
+                const status = p.status || 'Pendente';
+                return status === 'Pendente' && new Date(p.data) < new Date();
+            });
+        },
+
+        parcelasPagas() {
+            if (!this.conta || !this.conta.parcelas) return [];
+            return this.conta.parcelas.filter(p => p.status === 'Pago');
+        }
+    },
+    methods: {
+        // Navega para a tela de detalhes da movimentação relacionada
+        navegarParaMovimentacao() {
+            if (!this.conta || !this.conta.idPastaOperacao || !this.conta.idFatoGerador) {
+                this.$buefy.toast.open({
+                    message: 'Informações insuficientes para navegação',
+                    type: 'is-warning'
+                });
+                return;
+            }
+
+            const time = this.$route.params.time;
+
+            this.$router.push({
+                name: 'CompraDetalhes',  // Nome exato da rota no router
+                params: {
+                    time: time,
+                    idPastaOperacao: this.conta.idPastaOperacao,
+                    idMovimentacao: this.conta.idFatoGerador
+                }
+            });
+        },
+        // Busca o nome da pasta de operação pelo ID
+        async buscarNomePastaOperacao(idPastaOperacao) {
+            if (!idPastaOperacao) {
+                this.nomePastaOperacao = null;
+                return;
+            }
+
+            this.loadingPastaOperacao = true;
+            const time = this.$route.params.time;
+
+            try {
+                const ref = firebase.database().ref(`${time}/pastasOperacao/${idPastaOperacao}`);
+                const snapshot = await ref.once('value');
+
+                if (snapshot.exists()) {
+                    const pastaData = snapshot.val();
+                    this.nomePastaOperacao = pastaData.nome || 'Pasta sem nome';
+                } else {
+                    this.nomePastaOperacao = 'Pasta não encontrada';
+                }
+            } catch (error) {
+                this.nomePastaOperacao = 'Erro ao carregar';
+            } finally {
+                this.loadingPastaOperacao = false;
+            }
+        },
+        async carregarConta() {
+            this.loading = true;
+            const time = this.$route.params.time;
+            const idConta = this.$route.params.idConta;
+
+            // Determinar o tipo de conta pela rota atual
+            const rotaAtual = this.$route.path;
+            if (rotaAtual.includes('/Contas/Pagar')) {
+                this.tipoConta = 'Pagar';
+            } else if (rotaAtual.includes('/Contas/Receber')) {
+                this.tipoConta = 'Receber';
+            } else {
+                // Fallback caso a rota não esteja no padrão esperado
+                alert('Tipo de conta não identificado na rota:' + rotaAtual);
+                this.conta = null;
+                this.loading = false;
+                return;
+            }
+
+            if (!time || !idConta) {
+                this.conta = null;
+                this.loading = false;
+                return;
+            }
+
+            try {
+                // Buscar diretamente no caminho específico baseado no tipo da rota
+                const ref = firebase.database().ref(`${time}/Contas${this.tipoConta}/${idConta}`);
+                const snapshot = await ref.once('value');
+
+                if (snapshot.exists()) {
+                    this.processarConta(snapshot);
+                } else {
+                    // Conta não encontrada no caminho específico
+                    this.conta = null;
+                    this.loading = false;
+                }
+
+            } catch (error) {
+                this.$buefy.toast.open({
+                    message: `Erro ao carregar conta: ${error.message}`,
+                    type: 'is-danger'
+                });
+                this.conta = null;
+                this.loading = false;
+            }
+        },
+
+        processarConta(snapshot) {
+            const contaData = snapshot.val();
+            const idConta = snapshot.key;
+
+            if (!contaData) {
+                this.conta = null;
+                this.loading = false;
+                return;
+            }
+
+            // Mapear os dados da conta com valores padrão seguros
+            this.conta = {
+                id: idConta,
+                idFatoGerador: contaData.idFatoGerador || null,
+                tipoFatoGerador: contaData.tipoFatoGerador || 'Movimentação',
+                quantidadeParcelas: contaData.quantidadeParcelas || 1,
+                valorTotal: contaData.valor || 0,
+                nomeParceiro: contaData.nomeParceiro || contaData.nomeCliente || contaData.nomeFornecedor || 'N/A',
+                dataCriacao: contaData.dataCriacao || new Date().toISOString(),
+                ultimaAtualizacao: contaData.ultimaAtualizacao || new Date().toISOString(),
+                // Incluindo o ID da pasta de operação nos dados da conta
+                idPastaOperacao: contaData.idPastaOperacao || null,
+                parcelas: []
+            };
+
+            // Processar parcelas
+            if (contaData.Parcelas && typeof contaData.Parcelas === 'object') {
+                Object.keys(contaData.Parcelas).forEach(parcelaKey => {
+                    const parcela = contaData.Parcelas[parcelaKey];
+
+                    if (parcela) {
+                        this.conta.parcelas.push({
+                            id: parcelaKey,
+                            numero: parcela.numero || 1,
+                            valor: parcela.valor || 0,
+                            data: this.parseFirebaseDate(parcela.data),
+                            dataPagamento: this.parseFirebaseDate(parcela.dataPagamento),
+                            status: parcela.status || 'Pendente'
+                        });
+                    }
+                });
+            } else {
+                // Se não tem parcelas, criar uma parcela única com os dados principais
+                this.conta.parcelas.push({
+                    id: 'unica',
+                    numero: 1,
+                    valor: contaData.valor || 0,
+                    data: this.parseFirebaseDate(contaData.data),
+                    dataPagamento: this.parseFirebaseDate(contaData.dataPagamento),
+                    status: contaData.status || 'Pendente'
+                });
+            }
+
+            // Verificar vencimento para cada parcela
+            this.conta.parcelas.forEach(parcela => {
+                this.verificarVencimento(parcela);
+            });
+
+            // Ordenar parcelas por número
+            this.conta.parcelas.sort((a, b) => (a.numero || 0) - (b.numero || 0));
+
+            // Buscar nome da pasta de operação se o ID existir
+            if (this.conta.idPastaOperacao) {
+                this.buscarNomePastaOperacao(this.conta.idPastaOperacao);
+            }
+
+            this.loading = false;
+        },
+
+        parseFirebaseDate(dateValue) {
+            if (!dateValue) return null;
+
+            try {
+                if (dateValue instanceof Date) return dateValue;
+                if (typeof dateValue === 'object' && dateValue.seconds) {
+                    return new Date(dateValue.seconds * 1000);
+                }
+                if (typeof dateValue === 'string') {
+                    return new Date(dateValue);
+                }
+                if (typeof dateValue === 'number') {
+                    return new Date(dateValue);
+                }
+            } catch (error) {
+                return null;
+            }
+
+            return null;
+        },
+
+        verificarVencimento(parcela) {
+            if (!parcela || !parcela.data) return;
+
+            if (parcela.status !== 'Pago' && parcela.status !== 'Cancelado') {
+                const hoje = new Date();
+                const dataVencimento = new Date(parcela.data);
+
+                // Reset das horas para comparar apenas as datas
+                hoje.setHours(0, 0, 0, 0);
+                dataVencimento.setHours(0, 0, 0, 0);
+
+                if (dataVencimento < hoje) {
+                    parcela.status = 'Vencido';
+                } else if (!parcela.status) {
+                    parcela.status = 'Pendente';
+                }
+            }
+        },
+
+        marcarComoPaga(parcela) {
+            if (!parcela) return;
+
+            this.$buefy.dialog.confirm({
+                title: 'Confirmar Pagamento',
+                message: `Confirma o pagamento da parcela #${parcela.numero} no valor de <b>${this.$options.filters.toCurrency(parcela.valor || 0)}</b>?`,
+                confirmText: 'Sim, Pagar',
+                cancelText: 'Cancelar',
+                type: 'is-success',
+                onConfirm: () => {
+                    this.atualizarStatusParcela(parcela, 'Pago');
+                }
+            });
+        },
+
+        async atualizarStatusParcela(parcela, status) {
+            if (!parcela || !this.conta) return;
+
+            const time = this.$route.params.time;
+            const idConta = this.$route.params.idConta;
+
+            const updates = {
+                status: status,
+                dataPagamento: new Date().toISOString()
+            };
+
+            try {
+                const ref = firebase.database().ref(
+                    `${time}/Contas${this.tipoConta}/${idConta}/Parcelas/${parcela.id}`
+                );
+
+                await ref.update(updates);
+
+                // Atualizar localmente
+                parcela.status = status;
+                parcela.dataPagamento = new Date();
+
+                this.$buefy.toast.open({
+                    message: 'Parcela marcada como paga com sucesso!',
+                    type: 'is-success'
+                });
+            } catch (error) {
+                this.$buefy.toast.open({
+                    message: `Erro ao marcar parcela como paga: ${error.message}`,
+                    type: 'is-danger'
+                });
+            }
+        },
+
+        formatarData(data) {
+            if (!data) return '-';
+
+            try {
+                const date = new Date(data);
+                if (isNaN(date.getTime())) return '-';
+                return date.toLocaleDateString('pt-BR');
+            } catch (error) {
+                return '-';
+            }
+        },
+
+        getStatusClass(status) {
+            const classes = {
+                'Pendente': 'is-warning',
+                'Pago': 'is-success',
+                'Vencido': 'is-danger',
+                'Cancelado': 'is-light'
+            };
+            return classes[status] || 'is-warning';
+        },
+
+        voltar() {
+            this.$router.go(-1);
+        },
+
+        editarConta() {
+            if (!this.conta) return;
+
+            this.$router.push({
+                name: 'editar-conta',
+                params: {
+                    tipoConta: this.tipoConta,
+                    idConta: this.conta.id
+                }
+            });
+        },
+
+        editarParcela(parcela) {
+            this.$buefy.dialog.alert({
+                title: `Editar Parcela #${parcela.numero}`,
+                message: 'Funcionalidade de edição será implementada em breve.',
+                confirmText: 'OK'
+            });
+        },
+
+        excluirConta() {
+            this.$buefy.dialog.confirm({
+                title: 'Excluir Conta',
+                message: 'Tem certeza que deseja excluir esta conta? Esta ação não pode ser desfeita.',
+                confirmText: 'Sim, Excluir',
+                cancelText: 'Cancelar',
+                type: 'is-danger',
+                onConfirm: () => {
+                    this.$buefy.toast.open('Conta excluída com sucesso!');
+                    this.voltar();
+                }
+            });
+        },
+
+        cancelarConta() {
+            this.$buefy.dialog.confirm({
+                title: 'Cancelar Conta',
+                message: 'Tem certeza que deseja cancelar esta conta?',
+                confirmText: 'Sim, Cancelar',
+                cancelText: 'Voltar',
+                type: 'is-warning',
+                onConfirm: () => {
+                    this.$buefy.toast.open('Conta cancelada com sucesso!');
+                    this.voltar();
+                }
+            });
+        }
+    },
+
+    filters: {
+        toCurrency(value) {
+            if (value === null || value === undefined || isNaN(value)) {
+                return 'R$ 0,00';
+            }
+            return new Intl.NumberFormat('pt-BR', {
+                style: 'currency',
+                currency: 'BRL'
+            }).format(Number(value));
+        }
+    },
+
+    mounted() {
+        this.carregarConta();
+    },
+
+    // Adicionar beforeDestroy para limpeza se necessário
+    beforeDestroy() {
+        // Limpar referências do Firebase se existirem
+    }
+};
+</script>
+
+<style scoped>
+.main-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 1rem;
+}
+
+.header-box {
+    margin-bottom: 2rem;
+}
+
+.main-content .box {
+    margin-bottom: 2rem;
+}
+
+.rotating {
+    animation: rotate 2s linear infinite;
+}
+
+@keyframes rotate {
+    from {
+        transform: rotate(0deg);
+    }
+
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.table th {
+    background-color: #f5f5f5;
+    font-weight: 600;
+}
+
+.buttons.are-small .button {
+    margin-right: 0.25rem;
+}
+
+@media (max-width: 768px) {
+    .main-container {
+        padding: 0.5rem;
+    }
+
+    .level {
+        flex-direction: column;
+        gap: 1rem;
+    }
+
+    .buttons.is-centered {
+        flex-direction: column;
+        align-items: center;
+    }
+
+    .buttons.is-centered .button {
+        width: 100%;
+        max-width: 300px;
+        margin-bottom: 0.5rem;
+    }
+}
+</style>
